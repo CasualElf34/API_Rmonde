@@ -1,4 +1,7 @@
-const API_URL = 'http://localhost:8000';
+const isLocalFrontend = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const API_URL = isLocalFrontend && window.location.port === '3000'
+    ? 'http://localhost:8000'
+    : window.location.origin;
 const IMAGE_STORAGE_KEY = 'recipe_images';
 
 function loadRecipeImages() {

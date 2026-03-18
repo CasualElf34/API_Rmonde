@@ -35,7 +35,7 @@ async def add_cache_headers(request: Request, call_next):
     path = request.url.path.lower()
 
     if path.endswith((".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".ico")):
-        response.headers["Cache-Control"] = "public, max-age=604800, immutable"
+        response.headers["Cache-Control"] = "public, max-age=300"
     elif path.endswith(".html") or path == "/":
         response.headers["Cache-Control"] = "public, max-age=300"
 

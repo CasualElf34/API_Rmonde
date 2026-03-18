@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -7,6 +8,7 @@ from app.schemas.user import UserCreate, User as UserSchema, UserUpdate
 from app.core.security import get_password_hash, get_current_user
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=UserSchema)
@@ -29,12 +31,21 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
             detail="Nom d'utilisateur déjà pris"
         )
     
+    try:
+        hashed_password = get_password_hash(user.password)
+    except Exception:
+        logger.exception("Password hashing failed during registration")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erreur serveur (hash mot de passe)"
+        )
+
     # Créer le nouvel utilisateur
     db_user = User(
         email=user.email,
         username=user.username,
         full_name=user.full_name,
-        hashed_password=get_password_hash(user.password),
+        hashed_password=hashed_password,
     )
     try:
         db.add(db_user)
@@ -42,6 +53,7 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
         db.refresh(db_user)
     except SQLAlchemyError:
         db.rollback()
+        logger.exception("Database error during registration")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Erreur base de données lors de l'inscription"

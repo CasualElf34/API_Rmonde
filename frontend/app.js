@@ -208,17 +208,20 @@ async function handleRegister(event) {
         }
 
         let errorDetail = `Erreur inscription (${res.status})`;
-        try {
-            const err = await res.json();
-            if (err?.detail) {
-                errorDetail = Array.isArray(err.detail)
-                    ? err.detail.map((item) => item.msg || JSON.stringify(item)).join(' | ')
-                    : err.detail;
-            }
-        } catch (parseError) {
-            const fallbackText = await res.text();
-            if (fallbackText) {
-                errorDetail = `${errorDetail} - ${fallbackText.slice(0, 180)}`;
+        const rawBody = await res.text();
+
+        if (rawBody) {
+            try {
+                const err = JSON.parse(rawBody);
+                if (err?.detail) {
+                    errorDetail = Array.isArray(err.detail)
+                        ? err.detail.map((item) => item.msg || JSON.stringify(item)).join(' | ')
+                        : err.detail;
+                } else {
+                    errorDetail = `${errorDetail} - ${rawBody.slice(0, 180)}`;
+                }
+            } catch (parseError) {
+                errorDetail = `${errorDetail} - ${rawBody.slice(0, 180)}`;
             }
         }
 

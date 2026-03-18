@@ -1,34 +1,100 @@
 const API_URL = 'http://localhost:8000';
+const IMAGE_STORAGE_KEY = 'recipe_images';
+
+function loadRecipeImages() {
+    try {
+        return JSON.parse(localStorage.getItem(IMAGE_STORAGE_KEY) || '{}');
+    } catch (error) {
+        return {};
+    }
+}
+
 let state = {
     token: localStorage.getItem('token') || null,
     user: null,
     recipes: [],
     favorites: {},
     ratings: {},
+    recipeImages: loadRecipeImages(),
     activeTab: 'search',
     selectedRecipe: null,
     editingRecipe: null,
-    filters: { cuisine: '', dish_type: '', dietary_type: '' }
+    filters: { name: '', cuisine: '', dish_type: '', dietary_type: '' }
 };
+
+function persistRecipeImages() {
+    localStorage.setItem(IMAGE_STORAGE_KEY, JSON.stringify(state.recipeImages));
+}
+
+function setRecipeImage(recipeId, imageUrl) {
+    if (!recipeId) return;
+    const nextUrl = (imageUrl || '').trim();
+    if (nextUrl) {
+        state.recipeImages[recipeId] = nextUrl;
+    } else {
+        delete state.recipeImages[recipeId];
+    }
+    persistRecipeImages();
+}
+
+function getRecipeImage(recipe) {
+    return state.recipeImages[recipe.id] || `https://picsum.photos/seed/recipe-${recipe.id}/900/600`;
+}
 
 function getRecipeShareUrl(recipeId) {
     return `${window.location.origin}${window.location.pathname}?recipe=${recipeId}`;
 }
 
+function logout() {
+    state.token = null;
+    state.user = null;
+    state.favorites = {};
+    state.ratings = {};
+    state.selectedRecipe = null;
+    state.editingRecipe = null;
+    state.activeTab = 'search';
+    localStorage.removeItem('token');
+    render();
+}
+
 function renderFooter() {
     return `
-        <footer class="app-footer">
+        <footer class="site-footer">
             <div class="footer-inner">
-                <div class="footer-brand">
-                    <span class="footer-logo" aria-hidden="true">WR</span>
-                    <div class="footer-text">
-                        <strong>World Recipes</strong>
-                        <small>API Recette du Monde • 2026</small>
-                    </div>
+                <div>
+                    <h3>World Recipes</h3>
+                    <p>Des recettes du monde dans une interface claire et rapide.</p>
                 </div>
-                <p>Découvrez, partagez et cuisinez des recettes internationales.</p>
+                <div class="footer-meta">
+                    <span>Frontend + API FastAPI</span>
+                    <span>© 2026</span>
+                </div>
             </div>
         </footer>
+    `;
+}
+
+function renderHero(isAuth) {
+    if (!isAuth) {
+        return `
+            <header class="hero">
+                <div class="hero-content">
+                    <h1>🍽️ World Recipes</h1>
+                    <p>Explore, crée et partage des recettes avec une nouvelle interface moderne.</p>
+                </div>
+            </header>
+        `;
+    }
+
+    return `
+        <header class="hero hero-auth">
+            <div class="hero-content">
+                <p class="hero-kicker">Connecté en tant que ${state.user?.username || 'utilisateur'}</p>
+                <h1>🌍 Dashboard Recettes</h1>
+                <p>Recherche, favoris, édition et images de plats dans une seule vue.</p>
+            </div>
+            <button class="btn btn-danger" type="button" onclick="logout()">Déconnexion</button>
+        </header>
     `;
 }
 
@@ -39,7 +105,9 @@ async function fetchUser() {
             headers: { 'Authorization': `Bearer ${state.token}` }
         });
         if (res.ok) state.user = await res.json();
-    } catch (e) { console.error(e); }
+    } catch (error) {
+        console.error(error);
+    }
 }
 
 async function fetchRecipes() {
@@ -49,7 +117,9 @@ async function fetchRecipes() {
         if (res.ok) {
             state.recipes = await res.json();
         }
-    } catch (e) { console.error(e); }
+    } catch (error) {
+        console.error(error);
+    }
 }
 
 async function fetchFavorites() {
@@ -74,74 +144,91 @@ async function fetchFavorites() {
         }
 
         state.favorites = nextFavorites;
-    } catch (e) {
-        console.error(e);
+    } catch (error) {
+        console.error(error);
     }
 }
 
-async function handleLogin(e) {
-    e.preventDefault();
-    const username = e.target.username.value;
-    const password = e.target.password.value;
+async function handleLogin(event) {
+    event.preventDefault();
+    const username = event.target.username.value;
+    const password = event.target.password.value;
+
     try {
         const res = await fetch(`${API_URL}/api/auth/token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
-        if (res.ok) {
-            const data = await res.json();
-            state.token = data.access_token;
-            localStorage.setItem('token', state.token);
-            await Promise.all([fetchUser(), fetchFavorites()]);
-            state.activeTab = 'search';
-            render();
-        } else {
+
+        if (!res.ok) {
             alert('Email ou mot de passe incorrect');
+            return;
         }
-    } catch (e) { alert('Erreur'); }
+
+        const data = await res.json();
+        state.token = data.access_token;
+        localStorage.setItem('token', state.token);
+
+        await Promise.all([fetchUser(), fetchRecipes()]);
+        await fetchFavorites();
+
+        state.activeTab = 'search';
+        render();
+    } catch (error) {
+        alert('Erreur connexion');
+    }
 }
 
-async function handleRegister(e) {
-    e.preventDefault();
-    const data = {
-        username: e.target.username.value,
-        email: e.target.email.value,
-        password: e.target.password.value,
-        full_name: e.target.fullName.value,
+async function handleRegister(event) {
+    event.preventDefault();
+
+    const payload = {
+        username: event.target.username.value,
+        email: event.target.email.value,
+        password: event.target.password.value,
+        full_name: event.target.fullName.value,
     };
+
     try {
         const res = await fetch(`${API_URL}/api/users/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            body: JSON.stringify(payload)
         });
+
         if (res.ok) {
-            alert('Inscrit! Connectez-vous');
+            alert('Compte créé, connecte-toi.');
             state.activeTab = 'login';
             render();
-        } else {
-            const err = await res.json();
-            alert(err.detail || 'Erreur');
+            return;
         }
-    } catch (e) { alert('Erreur'); }
+
+        const err = await res.json();
+        alert(err.detail || 'Erreur inscription');
+    } catch (error) {
+        alert('Erreur inscription');
+    }
 }
 
-async function handleCreateRecipe(e) {
-    e.preventDefault();
+async function handleCreateRecipe(event) {
+    event.preventDefault();
+
+    const imageUrl = event.target.image_url.value;
     const recipe = {
-        name: e.target.name.value,
-        description: e.target.description.value,
-        ingredients: e.target.ingredients.value,
-        instructions: e.target.instructions.value,
-        cuisine: e.target.cuisine.value || 'Autre',
-        dish_type: e.target.dish_type.value || 'Plat',
-        dietary_type: e.target.dietary_type.value || 'Normal',
-        difficulty: e.target.difficulty.value || 'Moyen',
-        prep_time: parseInt(e.target.prep_time.value) || 0,
-        cook_time: parseInt(e.target.cook_time.value) || 0,
-        servings: parseInt(e.target.servings.value) || 4
+        name: event.target.name.value,
+        description: event.target.description.value,
+        ingredients: event.target.ingredients.value,
+        instructions: event.target.instructions.value,
+        cuisine: event.target.cuisine.value || 'Autre',
+        dish_type: event.target.dish_type.value || 'Plat',
+        dietary_type: event.target.dietary_type.value || 'Normal',
+        difficulty: event.target.difficulty.value || 'Moyen',
+        prep_time: parseInt(event.target.prep_time.value, 10) || 0,
+        cook_time: parseInt(event.target.cook_time.value, 10) || 0,
+        servings: parseInt(event.target.servings.value, 10) || 4
     };
+
     try {
         const res = await fetch(`${API_URL}/api/recipes/`, {
             method: 'POST',
@@ -151,33 +238,54 @@ async function handleCreateRecipe(e) {
             },
             body: JSON.stringify(recipe)
         });
-        if (res.ok) {
-            alert('Recette créée!');
-            await fetchRecipes();
-            state.editingRecipe = null;
-            state.activeTab = 'search';
-            e.target.reset();
-            render();
+
+        if (!res.ok) {
+            const err = await res.json();
+            alert(err.detail || 'Erreur création');
+            return;
         }
-    } catch (e) { alert('Erreur'); }
+
+        let createdRecipe = null;
+        try {
+            createdRecipe = await res.json();
+        } catch (error) {
+            createdRecipe = null;
+        }
+
+        await fetchRecipes();
+        await fetchFavorites();
+
+        const recipeId = createdRecipe?.id || state.recipes.find((item) => item.name === recipe.name)?.id;
+        setRecipeImage(recipeId, imageUrl);
+
+        alert('Recette créée');
+        state.editingRecipe = null;
+        state.activeTab = 'search';
+        event.target.reset();
+        render();
+    } catch (error) {
+        alert('Erreur création');
+    }
 }
 
-async function handleUpdateRecipe(e) {
-    e.preventDefault();
+async function handleUpdateRecipe(event) {
+    event.preventDefault();
     if (!state.editingRecipe) return;
 
+    const imageUrl = event.target.image_url.value;
+
     const recipe = {
-        name: e.target.name.value,
-        description: e.target.description.value,
-        ingredients: e.target.ingredients.value,
-        instructions: e.target.instructions.value,
-        cuisine: e.target.cuisine.value || 'Autre',
-        dish_type: e.target.dish_type.value || 'Plat',
-        dietary_type: e.target.dietary_type.value || 'Normal',
-        difficulty: e.target.difficulty.value || 'Moyen',
-        prep_time: parseInt(e.target.prep_time.value) || 0,
-        cook_time: parseInt(e.target.cook_time.value) || 0,
-        servings: parseInt(e.target.servings.value) || 4
+        name: event.target.name.value,
+        description: event.target.description.value,
+        ingredients: event.target.ingredients.value,
+        instructions: event.target.instructions.value,
+        cuisine: event.target.cuisine.value || 'Autre',
+        dish_type: event.target.dish_type.value || 'Plat',
+        dietary_type: event.target.dietary_type.value || 'Normal',
+        difficulty: event.target.difficulty.value || 'Moyen',
+        prep_time: parseInt(event.target.prep_time.value, 10) || 0,
+        cook_time: parseInt(event.target.cook_time.value, 10) || 0,
+        servings: parseInt(event.target.servings.value, 10) || 4
     };
 
     try {
@@ -190,23 +298,33 @@ async function handleUpdateRecipe(e) {
             body: JSON.stringify(recipe)
         });
 
-        if (res.ok) {
-            alert('Recette mise à jour!');
-            await fetchRecipes();
-            state.editingRecipe = null;
-            state.activeTab = 'search';
-            render();
-        } else {
+        if (!res.ok) {
             const err = await res.json();
             alert(err.detail || 'Erreur mise à jour');
+            return;
         }
-    } catch (e) { alert('Erreur'); }
+
+        setRecipeImage(state.editingRecipe, imageUrl);
+
+        await fetchRecipes();
+        await fetchFavorites();
+
+        alert('Recette mise à jour');
+        state.editingRecipe = null;
+        state.activeTab = 'search';
+        render();
+    } catch (error) {
+        alert('Erreur mise à jour');
+    }
 }
 
 async function handleDeleteRecipe(recipeId) {
-    if (!state.token) { alert('Connectez-vous'); return; }
-    const confirmed = confirm('Supprimer cette recette ?');
-    if (!confirmed) return;
+    if (!state.token) {
+        alert('Connecte-toi d’abord');
+        return;
+    }
+
+    if (!confirm('Supprimer cette recette ?')) return;
 
     try {
         const res = await fetch(`${API_URL}/api/recipes/${recipeId}`, {
@@ -214,17 +332,24 @@ async function handleDeleteRecipe(recipeId) {
             headers: { 'Authorization': `Bearer ${state.token}` }
         });
 
-        if (res.ok) {
-            alert('Recette supprimée');
-            state.selectedRecipe = null;
-            if (state.editingRecipe === recipeId) state.editingRecipe = null;
-            await fetchRecipes();
-            render();
-        } else {
+        if (!res.ok) {
             const err = await res.json();
             alert(err.detail || 'Erreur suppression');
+            return;
         }
-    } catch (e) { alert('Erreur'); }
+
+        setRecipeImage(recipeId, '');
+        state.selectedRecipe = null;
+        if (state.editingRecipe === recipeId) state.editingRecipe = null;
+
+        await fetchRecipes();
+        await fetchFavorites();
+
+        alert('Recette supprimée');
+        render();
+    } catch (error) {
+        alert('Erreur suppression');
+    }
 }
 
 function startRecipeEdit(recipeId) {
@@ -235,7 +360,7 @@ function startRecipeEdit(recipeId) {
 }
 
 async function handleShareRecipe(recipeId) {
-    const recipe = state.recipes.find(r => r.id === recipeId);
+    const recipe = state.recipes.find((item) => item.id === recipeId);
     const shareUrl = getRecipeShareUrl(recipeId);
 
     try {
@@ -245,28 +370,32 @@ async function handleShareRecipe(recipeId) {
                 text: `Découvre cette recette: ${recipe?.name || ''}`,
                 url: shareUrl
             });
-        } else if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(shareUrl);
-            alert('Lien de partage copié');
-        } else {
-            prompt('Copiez ce lien:', shareUrl);
+            return;
         }
-    } catch (e) {
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(shareUrl);
+            alert('Lien copié');
+            return;
+        }
+
+        prompt('Copie ce lien:', shareUrl);
+    } catch (error) {
         alert('Partage annulé ou indisponible');
     }
 }
 
-async function handleUpdateProfile(e) {
-    e.preventDefault();
+async function handleUpdateProfile(event) {
+    event.preventDefault();
     if (!state.token) return;
 
     const payload = {
-        full_name: e.target.full_name.value,
-        email: e.target.email.value,
-        username: e.target.username.value
+        full_name: event.target.full_name.value,
+        email: event.target.email.value,
+        username: event.target.username.value
     };
 
-    const password = e.target.password.value;
+    const password = event.target.password.value;
     if (password) payload.password = password;
 
     try {
@@ -279,79 +408,426 @@ async function handleUpdateProfile(e) {
             body: JSON.stringify(payload)
         });
 
-        if (res.ok) {
-            state.user = await res.json();
-            alert('Profil mis à jour');
-            e.target.password.value = '';
-            render();
-        } else {
+        if (!res.ok) {
             const err = await res.json();
             alert(err.detail || 'Erreur profil');
+            return;
         }
-    } catch (e) { alert('Erreur'); }
+
+        state.user = await res.json();
+        alert('Profil mis à jour');
+        event.target.password.value = '';
+        render();
+    } catch (error) {
+        alert('Erreur profil');
+    }
 }
 
 async function handleToggleFavorite(recipeId) {
-    if (!state.token) { alert('Connectez-vous'); return; }
+    if (!state.token) {
+        alert('Connecte-toi d’abord');
+        return;
+    }
+
     try {
         const isFav = state.favorites[recipeId];
         const method = isFav ? 'DELETE' : 'POST';
-        await fetch(`${API_URL}/api/user/favorites/${recipeId}`, {
+
+        const res = await fetch(`${API_URL}/api/user/favorites/${recipeId}`, {
             method,
             headers: { 'Authorization': `Bearer ${state.token}` }
         });
+
+        if (!res.ok) {
+            alert('Impossible de modifier les favoris');
+            return;
+        }
+
         state.favorites[recipeId] = !isFav;
         render();
-    } catch (e) { alert('Erreur'); }
+    } catch (error) {
+        alert('Erreur favoris');
+    }
 }
 
 async function handleRate(recipeId, rating) {
-    if (!state.token) { alert('Connectez-vous'); return; }
+    if (!state.token) {
+        alert('Connecte-toi d’abord');
+        return;
+    }
+
     try {
-        await fetch(`${API_URL}/api/user/rate/${recipeId}?rating=${rating}`, {
+        const res = await fetch(`${API_URL}/api/user/rate/${recipeId}?rating=${rating}`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${state.token}` }
         });
+
+        if (!res.ok) {
+            alert('Impossible de noter cette recette');
+            return;
+        }
+
         state.ratings[recipeId] = rating;
         render();
-    } catch (e) { alert('Erreur'); }
+    } catch (error) {
+        alert('Erreur notation');
+    }
+}
+
+async function applySearchFilters(event) {
+    event.preventDefault();
+    state.filters.name = event.target.query.value;
+    await fetchRecipes();
+    await fetchFavorites();
+    render();
+}
+
+function clearSearchFilters() {
+    state.filters = { name: '', cuisine: '', dish_type: '', dietary_type: '' };
+    fetchRecipes().then(fetchFavorites).then(render);
 }
 
 function renderStars(recipeId) {
     const rating = state.ratings[recipeId] || 0;
     let html = `<div class="star-rating" data-recipe="${recipeId}">`;
-    for (let i = 1; i <= 5; i++) {
-        const filled = i <= rating ? 'filled' : '';
-        html += `<button type="button" class="star ${filled}" onclick="handleRate(${recipeId}, ${i})" aria-label="Noter ${i} sur 5" title="Noter ${i} sur 5">★</button>`;
+
+    for (let index = 1; index <= 5; index += 1) {
+        const filled = index <= rating ? 'filled' : '';
+        html += `<button type="button" class="star ${filled}" onclick="handleRate(${recipeId}, ${index})" aria-label="Noter ${index} sur 5">★</button>`;
     }
+
     html += '</div>';
     return html;
 }
 
 function renderRecipeCard(recipe) {
     const isFav = state.favorites[recipe.id] ? 'active' : '';
+    const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
+    const imageUrl = getRecipeImage(recipe);
+
     return `
-        <div class="recipe-card" onclick="state.selectedRecipe = ${recipe.id}; render()">
-            <div class="recipe-header">
-                <div class="recipe-title-fav">
-                    <h3>${recipe.name}</h3>
-                    <button type="button" class="fav-btn ${isFav}" onclick="event.stopPropagation(); handleToggleFavorite(${recipe.id})" aria-label="Ajouter ou retirer des favoris" title="Favori">❤️</button>
-                </div>
-                <div class="recipe-meta">
-                    <span>🌍 ${recipe.cuisine}</span>
-                    <span>🍳 ${recipe.dish_type}</span>
-                </div>
+        <article class="recipe-card" onclick="state.selectedRecipe = ${recipe.id}; render()">
+            <div class="recipe-image-wrap">
+                <img class="recipe-image" src="${imageUrl}" alt="${recipe.name}" loading="lazy" onerror="this.src='https://picsum.photos/seed/fallback-${recipe.id}/900/600'">
+                <button type="button" class="fav-icon ${isFav}" onclick="event.stopPropagation(); handleToggleFavorite(${recipe.id})" aria-label="Favori">❤</button>
             </div>
-            <div class="recipe-body">
+            <div class="recipe-content">
+                <h3>${recipe.name}</h3>
                 <p class="recipe-description">${recipe.description}</p>
-                <div class="recipe-details">
-                    <div>⏱️ ${recipe.prep_time + recipe.cook_time}min</div>
-                    <div>👥 ${recipe.servings}</div>
-                    <div>📊 ${recipe.difficulty}</div>
+                <div class="recipe-tags">
+                    <span>${recipe.cuisine || 'Autre cuisine'}</span>
+                    <span>${recipe.dish_type || 'Plat'}</span>
+                    <span>${recipe.dietary_type || 'Normal'}</span>
+                </div>
+                <div class="recipe-stats">
+                    <span>⏱ ${totalTime} min</span>
+                    <span>👥 ${recipe.servings || 1}</span>
+                    <span>📈 ${recipe.difficulty || 'Moyen'}</span>
                 </div>
                 ${renderStars(recipe.id)}
             </div>
+        </article>
+    `;
+}
+
+function renderLoginForm() {
+    return `
+        <section class="auth-card">
+            <h2>Connexion</h2>
+            <form class="auth-form" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label>Nom d'utilisateur</label>
+                    <input type="text" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label>Mot de passe</label>
+                    <input type="password" name="password" required>
+                </div>
+                <button class="btn" type="submit">Se connecter</button>
+            </form>
+        </section>
+    `;
+}
+
+function renderRegisterForm() {
+    return `
+        <section class="auth-card">
+            <h2>Inscription</h2>
+            <form class="auth-form" onsubmit="handleRegister(event)">
+                <div class="form-group">
+                    <label>Nom complet</label>
+                    <input type="text" name="fullName" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label>Nom d'utilisateur</label>
+                    <input type="text" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label>Mot de passe</label>
+                    <input type="password" name="password" required>
+                </div>
+                <button class="btn" type="submit">Créer mon compte</button>
+            </form>
+        </section>
+    `;
+}
+
+function renderCreateForm() {
+    const recipeToEdit = state.recipes.find((recipe) => recipe.id === state.editingRecipe);
+    const isEditMode = Boolean(recipeToEdit);
+
+    return `
+        <section class="panel">
+            <h2>${isEditMode ? 'Modifier une recette' : 'Créer une recette'}</h2>
+            <form class="recipe-form" onsubmit="${isEditMode ? 'handleUpdateRecipe(event)' : 'handleCreateRecipe(event)'}">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Nom *</label>
+                        <input type="text" name="name" value="${recipeToEdit?.name || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Cuisine</label>
+                        <input type="text" name="cuisine" value="${recipeToEdit?.cuisine || ''}" placeholder="Ex: Marocaine">
+                    </div>
+                    <div class="form-group">
+                        <label>Image du plat (URL)</label>
+                        <input type="url" name="image_url" value="${isEditMode ? (state.recipeImages[state.editingRecipe] || '') : ''}" placeholder="https://...">
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select name="dish_type">
+                            <option value="Entrée" ${recipeToEdit?.dish_type === 'Entrée' ? 'selected' : ''}>Entrée</option>
+                            <option value="Plat" ${recipeToEdit?.dish_type === 'Plat' || !recipeToEdit ? 'selected' : ''}>Plat</option>
+                            <option value="Dessert" ${recipeToEdit?.dish_type === 'Dessert' ? 'selected' : ''}>Dessert</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Régime</label>
+                        <select name="dietary_type">
+                            <option value="Normal" ${recipeToEdit?.dietary_type === 'Normal' || !recipeToEdit ? 'selected' : ''}>Normal</option>
+                            <option value="Végétarien" ${recipeToEdit?.dietary_type === 'Végétarien' ? 'selected' : ''}>Végétarien</option>
+                            <option value="Sans gluten" ${recipeToEdit?.dietary_type === 'Sans gluten' ? 'selected' : ''}>Sans gluten</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Difficulté</label>
+                        <select name="difficulty">
+                            <option value="Facile" ${recipeToEdit?.difficulty === 'Facile' ? 'selected' : ''}>Facile</option>
+                            <option value="Moyen" ${recipeToEdit?.difficulty === 'Moyen' || !recipeToEdit ? 'selected' : ''}>Moyen</option>
+                            <option value="Difficile" ${recipeToEdit?.difficulty === 'Difficile' ? 'selected' : ''}>Difficile</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Description *</label>
+                    <textarea name="description" required>${recipeToEdit?.description || ''}</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Ingrédients *</label>
+                    <textarea name="ingredients" required>${recipeToEdit?.ingredients || ''}</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Instructions *</label>
+                    <textarea name="instructions" required>${recipeToEdit?.instructions || ''}</textarea>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Préparation (min)</label>
+                        <input type="number" name="prep_time" min="0" value="${recipeToEdit?.prep_time ?? 15}">
+                    </div>
+                    <div class="form-group">
+                        <label>Cuisson (min)</label>
+                        <input type="number" name="cook_time" min="0" value="${recipeToEdit?.cook_time ?? 30}">
+                    </div>
+                    <div class="form-group">
+                        <label>Portions</label>
+                        <input type="number" name="servings" min="1" value="${recipeToEdit?.servings ?? 4}">
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn" type="submit">${isEditMode ? 'Mettre à jour' : 'Publier la recette'}</button>
+                    ${isEditMode ? '<button type="button" class="btn btn-soft" onclick="state.editingRecipe=null; state.activeTab=\'search\'; render()">Annuler</button>' : ''}
+                </div>
+            </form>
+        </section>
+    `;
+}
+
+function renderProfile() {
+    return `
+        <section class="panel">
+            <h2>Mon profil</h2>
+            <form class="recipe-form" onsubmit="handleUpdateProfile(event)">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Nom complet</label>
+                        <input type="text" name="full_name" value="${state.user?.full_name || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>Nom d'utilisateur</label>
+                        <input type="text" name="username" value="${state.user?.username || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" name="email" value="${state.user?.email || ''}" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Nouveau mot de passe (optionnel)</label>
+                    <input type="password" name="password" placeholder="Laisser vide pour ne pas changer">
+                </div>
+                <button class="btn" type="submit">Enregistrer le profil</button>
+            </form>
+        </section>
+    `;
+}
+
+function renderSearchSection() {
+    return `
+        <section class="panel">
+            <form class="search-row" onsubmit="applySearchFilters(event)">
+                <input type="text" name="query" placeholder="Rechercher une recette" value="${state.filters.name || ''}" aria-label="Recherche">
+                <button class="btn" type="submit">Rechercher</button>
+                <button class="btn btn-soft" type="button" onclick="clearSearchFilters()">Réinitialiser</button>
+            </form>
+
+            <div class="filters-row">
+                <select onchange="state.filters.cuisine=this.value; fetchRecipes().then(fetchFavorites).then(render)">
+                    <option value="" ${state.filters.cuisine === '' ? 'selected' : ''}>Toutes cuisines</option>
+                    <option value="Française" ${state.filters.cuisine === 'Française' ? 'selected' : ''}>Française</option>
+                    <option value="Italienne" ${state.filters.cuisine === 'Italienne' ? 'selected' : ''}>Italienne</option>
+                    <option value="Asiatique" ${state.filters.cuisine === 'Asiatique' ? 'selected' : ''}>Asiatique</option>
+                </select>
+                <select onchange="state.filters.dish_type=this.value; fetchRecipes().then(fetchFavorites).then(render)">
+                    <option value="" ${state.filters.dish_type === '' ? 'selected' : ''}>Tous types</option>
+                    <option value="Entrée" ${state.filters.dish_type === 'Entrée' ? 'selected' : ''}>Entrée</option>
+                    <option value="Plat" ${state.filters.dish_type === 'Plat' ? 'selected' : ''}>Plat</option>
+                    <option value="Dessert" ${state.filters.dish_type === 'Dessert' ? 'selected' : ''}>Dessert</option>
+                </select>
+                <select onchange="state.filters.dietary_type=this.value; fetchRecipes().then(fetchFavorites).then(render)">
+                    <option value="" ${state.filters.dietary_type === '' ? 'selected' : ''}>Tous régimes</option>
+                    <option value="Normal" ${state.filters.dietary_type === 'Normal' ? 'selected' : ''}>Normal</option>
+                    <option value="Végétarien" ${state.filters.dietary_type === 'Végétarien' ? 'selected' : ''}>Végétarien</option>
+                    <option value="Sans gluten" ${state.filters.dietary_type === 'Sans gluten' ? 'selected' : ''}>Sans gluten</option>
+                </select>
+            </div>
+
+            <div class="recipe-grid">
+                ${state.recipes.length > 0 ? state.recipes.map(renderRecipeCard).join('') : '<p class="empty">Aucune recette trouvée.</p>'}
+            </div>
+        </section>
+    `;
+}
+
+function renderFavoritesSection() {
+    const favorites = state.recipes.filter((recipe) => state.favorites[recipe.id]);
+    return `
+        <section class="panel">
+            <h2>Mes favoris</h2>
+            <div class="recipe-grid">
+                ${favorites.length > 0 ? favorites.map(renderRecipeCard).join('') : '<p class="empty">Tu n\'as pas encore de favoris.</p>'}
+            </div>
+        </section>
+    `;
+}
+
+function renderModal() {
+    const recipe = state.recipes.find((item) => item.id === state.selectedRecipe);
+    if (!recipe) return '';
+
+    const isFav = state.favorites[recipe.id] ? 'active' : '';
+    const imageUrl = getRecipeImage(recipe);
+    const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
+
+    return `
+        <div class="modal-overlay" onclick="if(event.target===this){state.selectedRecipe=null; render();}">
+            <article class="modal-card">
+                <button type="button" class="modal-close" onclick="state.selectedRecipe=null; render()">✕</button>
+                <img class="modal-image" src="${imageUrl}" alt="${recipe.name}" onerror="this.src='https://picsum.photos/seed/fallback-modal-${recipe.id}/900/600'">
+                <div class="modal-body">
+                    <h2>${recipe.name}</h2>
+                    <p class="modal-sub">${recipe.cuisine || 'Autre cuisine'} • ${recipe.dish_type || 'Plat'} • ${recipe.difficulty || 'Moyen'}</p>
+
+                    <div class="mini-stats">
+                        <span>⏱ ${totalTime} min</span>
+                        <span>👥 ${recipe.servings || 1}</span>
+                        <span>${recipe.dietary_type || 'Normal'}</span>
+                    </div>
+
+                    <section class="modal-block">
+                        <h3>Description</h3>
+                        <p>${recipe.description}</p>
+                    </section>
+
+                    <section class="modal-block">
+                        <h3>Ingrédients</h3>
+                        <p class="preserve-lines">${recipe.ingredients}</p>
+                    </section>
+
+                    <section class="modal-block">
+                        <h3>Instructions</h3>
+                        <p class="preserve-lines">${recipe.instructions}</p>
+                    </section>
+
+                    <div class="modal-rating">
+                        <strong>Ta note</strong>
+                        ${renderStars(recipe.id)}
+                    </div>
+
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-soft ${isFav}" onclick="handleToggleFavorite(${recipe.id})">${isFav ? 'Retirer favori' : 'Ajouter favori'}</button>
+                        <button type="button" class="btn btn-soft" onclick="startRecipeEdit(${recipe.id})">Modifier</button>
+                        <button type="button" class="btn btn-soft" onclick="handleDeleteRecipe(${recipe.id})">Supprimer</button>
+                        <button type="button" class="btn" onclick="handleShareRecipe(${recipe.id})">Partager</button>
+                    </div>
+                </div>
+            </article>
         </div>
+    `;
+}
+
+function renderAuthPage() {
+    const authContent = state.activeTab === 'register' ? renderRegisterForm() : renderLoginForm();
+
+    return `
+        ${renderHero(false)}
+        <main class="main-layout auth-layout">
+            <nav class="tabs tabs-auth">
+                <button class="tab-btn ${state.activeTab === 'login' ? 'active' : ''}" onclick="state.activeTab='login'; render()">Connexion</button>
+                <button class="tab-btn ${state.activeTab === 'register' ? 'active' : ''}" onclick="state.activeTab='register'; render()">Inscription</button>
+            </nav>
+            ${authContent}
+        </main>
+        ${renderFooter()}
+    `;
+}
+
+function renderAppPage(content) {
+    return `
+        ${renderHero(true)}
+        <main class="main-layout">
+            <nav class="tabs">
+                <button class="tab-btn ${state.activeTab === 'search' ? 'active' : ''}" onclick="state.activeTab='search'; render()">Explorer</button>
+                <button class="tab-btn ${state.activeTab === 'favorites' ? 'active' : ''}" onclick="state.activeTab='favorites'; render()">Favoris</button>
+                <button class="tab-btn ${state.activeTab === 'create' ? 'active' : ''}" onclick="state.activeTab='create'; state.editingRecipe=null; render()">Nouvelle recette</button>
+                <button class="tab-btn ${state.activeTab === 'profile' ? 'active' : ''}" onclick="state.activeTab='profile'; render()">Profil</button>
+            </nav>
+            ${content}
+        </main>
+        ${renderFooter()}
+        ${state.selectedRecipe ? renderModal() : ''}
     `;
 }
 
@@ -359,263 +835,33 @@ async function render() {
     const app = document.getElementById('app');
 
     if (!state.token) {
-        app.innerHTML = `
-            <header>
-                <h1>🌍 World Recipes</h1>
-                <p>Découvrez et partagez les meilleures recettes du monde</p>
-            </header>
-            <div class="tabs">
-                <button class="tab-btn ${state.activeTab === 'login' ? 'active' : ''}" onclick="state.activeTab='login'; render()">🔐 Connexion</button>
-                <button class="tab-btn ${state.activeTab === 'register' ? 'active' : ''}" onclick="state.activeTab='register'; render()">✍️ Inscription</button>
-            </div>
-            ${state.activeTab === 'login' ? renderLoginForm() : renderRegisterForm()}
-            ${renderFooter()}
-        `;
+        app.innerHTML = renderAuthPage();
         return;
     }
 
     let content = '';
+
     if (state.activeTab === 'search') {
-        content = `
-            <div class="search-bar">
-                <input type="text" id="searchInput" placeholder="Rechercher..." aria-label="Rechercher une recette">
-                <button type="button" onclick="state.filters.name = document.getElementById('searchInput').value; fetchRecipes().then(render)" aria-label="Lancer la recherche" title="Rechercher">🔍</button>
-            </div>
-            <div class="filters">
-                <select onchange="state.filters.cuisine = this.value; fetchRecipes().then(render)" aria-label="Filtrer par cuisine">
-                    <option value="">Cuisines</option>
-                    <option value="Française">Française</option>
-                    <option value="Italienne">Italienne</option>
-                    <option value="Asiatique">Asiatique</option>
-                </select>
-                <select onchange="state.filters.dish_type = this.value; fetchRecipes().then(render)" aria-label="Filtrer par type">
-                    <option value="">Types</option>
-                    <option value="Entrée">Entrée</option>
-                    <option value="Plat">Plat</option>
-                    <option value="Dessert">Dessert</option>
-                </select>
-                <select onchange="state.filters.dietary_type = this.value; fetchRecipes().then(render)" aria-label="Filtrer par régime">
-                    <option value="">Régimes</option>
-                    <option value="Végétarien">Végétarien</option>
-                    <option value="Sans gluten">Sans gluten</option>
-                    <option value="Normal">Normal</option>
-                </select>
-            </div>
-            <div class="recipe-grid">
-                ${state.recipes.map(renderRecipeCard).join('')}
-            </div>
-        `;
+        content = renderSearchSection();
+    } else if (state.activeTab === 'favorites') {
+        content = renderFavoritesSection();
     } else if (state.activeTab === 'create') {
         content = renderCreateForm();
-    } else if (state.activeTab === 'profile') {
-        content = `
-            <div class="profile-section">
-                <h2>Mon Profil 👤</h2>
-                <form class="recipe-form" onsubmit="handleUpdateProfile(event)">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Nom complet</label>
-                            <input type="text" name="full_name" value="${state.user?.full_name || ''}">
-                        </div>
-                        <div class="form-group">
-                            <label>Nom d'utilisateur</label>
-                            <input type="text" name="username" value="${state.user?.username || ''}" required>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Email</label>
-                            <input type="email" name="email" value="${state.user?.email || ''}" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Nouveau mot de passe (optionnel)</label>
-                            <input type="password" name="password" placeholder="Laisser vide pour ne pas changer">
-                        </div>
-                    </div>
-                    <button type="submit">Enregistrer</button>
-                </form>
-            </div>
-        `;
-    } else if (state.activeTab === 'favorites') {
-        const favs = state.recipes.filter(r => state.favorites[r.id]);
-        content = `
-            <h2>Mes Favoris ❤️</h2>
-            <div class="recipe-grid">
-                ${favs.length > 0 ? favs.map(renderRecipeCard).join('') : '<p>Aucun favori</p>'}
-            </div>
-        `;
+    } else {
+        content = renderProfile();
     }
 
-    app.innerHTML = `
-        <header>
-            <h1>🌍 World Recipes</h1>
-            <p>Découvrez et partagez les meilleures recettes du monde</p>
-        </header>
-        <div class="user-info">
-            <span>✅ ${state.user?.username}</span>
-            <button class="logout-btn" onclick="state.token=null; localStorage.removeItem('token'); state.activeTab='search'; state.selectedRecipe=null; state.editingRecipe=null; render()">Déconnexion</button>
-        </div>
-        <div class="tabs">
-            <button type="button" class="tab-btn ${state.activeTab === 'search' ? 'active' : ''}" onclick="state.activeTab='search'; render()" aria-label="Ouvrir recherche" title="Recherche">🔍</button>
-            <button type="button" class="tab-btn ${state.activeTab === 'favorites' ? 'active' : ''}" onclick="state.activeTab='favorites'; render()" aria-label="Ouvrir favoris" title="Favoris">❤️</button>
-            <button type="button" class="tab-btn ${state.activeTab === 'create' ? 'active' : ''}" onclick="state.activeTab='create'; render()" aria-label="Ouvrir création" title="Ajouter">➕</button>
-            <button type="button" class="tab-btn ${state.activeTab === 'profile' ? 'active' : ''}" onclick="state.activeTab='profile'; render()" aria-label="Ouvrir profil" title="Profil">👤</button>
-        </div>
-        <div>${content}</div>
-        ${renderFooter()}
-        ${state.selectedRecipe ? renderModal() : ''}
-    `;
+    app.innerHTML = renderAppPage(content);
 }
 
-function renderLoginForm() {
-    return `
-        <form class="auth-form" onsubmit="handleLogin(event)">
-            <h2>Se Connecter</h2>
-            <div class="form-group">
-                <label>Nom d'utilisateur</label>
-                <input type="text" name="username" required>
-            </div>
-            <div class="form-group">
-                <label>Mot de passe</label>
-                <input type="password" name="password" required>
-            </div>
-            <button type="submit">Se connecter</button>
-        </form>
-    `;
-}
-
-function renderRegisterForm() {
-    return `
-        <form class="auth-form" onsubmit="handleRegister(event)">
-            <h2>S'inscrire</h2>
-            <div class="form-group">
-                <label>Nom complet</label>
-                <input type="text" name="fullName" required>
-            </div>
-            <div class="form-group">
-                <label>Email</label>
-                <input type="email" name="email" required>
-            </div>
-            <div class="form-group">
-                <label>Nom d'utilisateur</label>
-                <input type="text" name="username" required>
-            </div>
-            <div class="form-group">
-                <label>Mot de passe</label>
-                <input type="password" name="password" required>
-            </div>
-            <button type="submit">S'inscrire</button>
-        </form>
-    `;
-}
-
-function renderCreateForm() {
-    const recipeToEdit = state.recipes.find(r => r.id === state.editingRecipe);
-    const isEditMode = !!recipeToEdit;
-    return `
-        <form class="recipe-form" onsubmit="${isEditMode ? 'handleUpdateRecipe(event)' : 'handleCreateRecipe(event)'}">
-            <h2>${isEditMode ? 'Modifier la Recette ✏️' : 'Ajouter une Recette ➕'}</h2>
-            <div class="form-row">
-                <div class="form-group"><label>Nom *</label><input type="text" name="name" value="${recipeToEdit?.name || ''}" required></div>
-                <div class="form-group"><label>Cuisine</label><input type="text" name="cuisine" value="${recipeToEdit?.cuisine || ''}" placeholder="Française"></div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Type</label>
-                    <select name="dish_type">
-                        <option value="Plat" ${recipeToEdit?.dish_type === 'Plat' || !recipeToEdit ? 'selected' : ''}>Plat</option>
-                        <option value="Entrée" ${recipeToEdit?.dish_type === 'Entrée' ? 'selected' : ''}>Entrée</option>
-                        <option value="Dessert" ${recipeToEdit?.dish_type === 'Dessert' ? 'selected' : ''}>Dessert</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Régime</label>
-                    <select name="dietary_type">
-                        <option value="Normal" ${recipeToEdit?.dietary_type === 'Normal' || !recipeToEdit ? 'selected' : ''}>Normal</option>
-                        <option value="Végétarien" ${recipeToEdit?.dietary_type === 'Végétarien' ? 'selected' : ''}>Végétarien</option>
-                        <option value="Sans gluten" ${recipeToEdit?.dietary_type === 'Sans gluten' ? 'selected' : ''}>Sans gluten</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Difficulté</label>
-                    <select name="difficulty">
-                        <option value="Facile" ${recipeToEdit?.difficulty === 'Facile' ? 'selected' : ''}>Facile</option>
-                        <option value="Moyen" ${recipeToEdit?.difficulty === 'Moyen' || !recipeToEdit ? 'selected' : ''}>Moyen</option>
-                        <option value="Difficile" ${recipeToEdit?.difficulty === 'Difficile' ? 'selected' : ''}>Difficile</option>
-                    </select>
-                </div>
-            </div>
-            <div class="form-group"><label>Description *</label><textarea name="description" required>${recipeToEdit?.description || ''}</textarea></div>
-            <div class="form-group"><label>Ingrédients *</label><textarea name="ingredients" placeholder="- Ingrédient 1\n- Ingrédient 2" required>${recipeToEdit?.ingredients || ''}</textarea></div>
-            <div class="form-group"><label>Instructions *</label><textarea name="instructions" placeholder="1. Étape 1\n2. Étape 2" required>${recipeToEdit?.instructions || ''}</textarea></div>
-            <div class="form-row">
-                <div class="form-group"><label>Préparation (min)</label><input type="number" name="prep_time" min="0" value="${recipeToEdit?.prep_time ?? 15}"></div>
-                <div class="form-group"><label>Cuisson (min)</label><input type="number" name="cook_time" min="0" value="${recipeToEdit?.cook_time ?? 30}"></div>
-                <div class="form-group"><label>Portions</label><input type="number" name="servings" min="1" value="${recipeToEdit?.servings ?? 4}"></div>
-            </div>
-            <button type="submit">${isEditMode ? 'Mettre à jour' : 'Ajouter'}</button>
-            ${isEditMode ? '<button type="button" class="modal-close-btn" onclick="state.editingRecipe=null; state.activeTab=\'search\'; render()">Annuler</button>' : ''}
-        </form>
-    `;
-}
-
-function renderModal() {
-    const recipe = state.recipes.find(r => r.id === state.selectedRecipe);
-    if (!recipe) return '';
-    const isFav = state.favorites[recipe.id] ? 'active' : '';
-    return `
-        <div class="modal-overlay" onclick="if(event.target === this) { state.selectedRecipe = null; render(); }">
-            <div class="modal-content">
-                <button type="button" class="modal-close" onclick="state.selectedRecipe = null; render()" aria-label="Fermer la fenêtre" title="Fermer">✕</button>
-                <h2>${recipe.name}</h2>
-                <p class="modal-cuisine">🌍 ${recipe.cuisine} | 🍳 ${recipe.dish_type} | 📊 ${recipe.difficulty}</p>
-                <div class="modal-section">
-                    <h3>📝 Description</h3>
-                    <p>${recipe.description}</p>
-                </div>
-                <div class="modal-section">
-                    <h3>⏱️ Temps & Portions</h3>
-                    <div class="info-grid">
-                        <div><strong>Préparation:</strong> ${recipe.prep_time} min</div>
-                        <div><strong>Cuisson:</strong> ${recipe.cook_time} min</div>
-                        <div><strong>Total:</strong> ${recipe.prep_time + recipe.cook_time} min</div>
-                        <div><strong>Portions:</strong> ${recipe.servings}</div>
-                    </div>
-                </div>
-                <div class="modal-section">
-                    <h3>🥘 Ingrédients</h3>
-                    <p style="white-space: pre-wrap;">${recipe.ingredients}</p>
-                </div>
-                <div class="modal-section">
-                    <h3>👨‍🍳 Instructions</h3>
-                    <p style="white-space: pre-wrap;">${recipe.instructions}</p>
-                </div>
-                <div class="modal-rating">
-                    <strong>Votre note:</strong>
-                    ${renderStars(recipe.id)}
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="fav-btn ${isFav}" onclick="handleToggleFavorite(${recipe.id})" aria-label="Ajouter ou retirer des favoris" title="Favori">
-                        ${isFav === 'active' ? '❤️ Retiré' : '❤️ Ajouter'}
-                    </button>
-                    <button type="button" class="modal-close-btn" onclick="startRecipeEdit(${recipe.id})">✏️ Modifier</button>
-                    <button type="button" class="modal-close-btn" onclick="handleDeleteRecipe(${recipe.id})">🗑️ Supprimer</button>
-                    <button type="button" class="modal-close-btn" onclick="handleShareRecipe(${recipe.id})">🔗 Partager</button>
-                    <button type="button" class="modal-close-btn" onclick="state.selectedRecipe = null; render()">Fermer</button>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-// Init
 (async () => {
     await Promise.all([fetchRecipes(), fetchUser()]);
     await fetchFavorites();
 
     const params = new URLSearchParams(window.location.search);
-    const sharedRecipeId = parseInt(params.get('recipe'));
-    if (!Number.isNaN(sharedRecipeId) && state.recipes.some(r => r.id === sharedRecipeId)) {
+    const sharedRecipeId = parseInt(params.get('recipe'), 10);
+
+    if (!Number.isNaN(sharedRecipeId) && state.recipes.some((recipe) => recipe.id === sharedRecipeId)) {
         state.selectedRecipe = sharedRecipeId;
     }
 

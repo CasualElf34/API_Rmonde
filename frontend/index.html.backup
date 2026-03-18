@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Recipes</title>
+    <link rel="stylesheet" href="style.css">
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const API_URL = 'http://localhost:8000';
+        
+        function StarRating({ recipeId, currentRating, onRate, token }) {
+            const [hoverRating, setHoverRating] = React.useState(0);
+            
+            const handleRate = (rating) => {
+                if (token) {
+                    onRate(recipeId, rating);
+                }
+            };
+            
+            return (
+                <div className="star-rating" title={token ? "Cliquez pour noter" : "Connectez-vous pour noter"}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                        <span
+                            key={star}
+                            className={`star ${star <= (hoverRating || currentRating) ? 'filled' : ''}`}
+                            onMouseEnter={() => setHoverRating(star)}
+                            onMouseLeave={() => setHoverRating(0)}
+                            onClick={() => handleRate(star)}
+                            style={{ cursor: token ? 'pointer' : 'default' }}
+                        >
+                            ★
+                        </span>
+                    ))}
+                </div>
+            );
+        }
+        
+        function App() {
+            const [token, setToken] = React.useState(localStorage.getItem('token'));
+            const [user, setUser] = React.useState(null);
+            const [recipes, setRecipes] = React.useState([]);
+            const [favorites, setFavorites] = React.useState([]);
+            const [recipeFavorites, setRecipeFavorites] = React.useState({});
+            const [userRatings, setUserRatings] = React.useState({});
+            const [activeTab, setActiveTab] = React.useState('search');
+            const [searchQuery, setSearchQuery] = React.useState('');
+            const [filters, setFilters] = React.useState({
+                cuisine: '',
+                dish_type: '',
+                dietary_type: '',
+            });
+            const [error, setError] = React.useState('');
+            const [success, setSuccess] = React.useState('');
+            const [profileEdit, setProfileEdit] = React.useState(false);
+            const [selectedRecipe, setSelectedRecipe] = React.useState(null);
+            
+            const fetchUser = React.useCallback(async () => {
+                if (!token) return;
+                try {
+                    const res = await fetch(`${API_URL}/api/users/me`, {
+                        headers: { 'Authorization': `Bearer ${token}` },
+                    });
+                    if (res.ok) {
+                        const userData = await res.json();
+                        setUser(userData);
+                    }
+                } catch (err) {
+                    console.error('Erreur chargement utilisateur', err);
+                }
+            }, [token]);
+            
+            const fetchRecipes = React.useCallback(async (search = '') => {
+                try {
+                    const params = new URLSearchParams(filters);
+                    if (search) params.append('name', search);
+                    
+                    const res = await fetch(`${API_URL}/api/recipes/?${params}`);
+                    if (!res.ok) throw new Error('Erreur lors du chargement');
+                    
+                    const data = await res.json();
+                    setRecipes(data);
+                } catch (err) {
+                    setError('Impossible de charger les recettes');
+                }
+            }, [filters]);
+            
+            const fetchFavorites = React.useCallback(async () => {
+                if (!token) return;
+                try {
+                    const res = await fetch(`${API_URL}/api/user/favorites`, {
+                        headers: { 'Authorization': `Bearer ${token}` },
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        setFavorites(data);
+                    }
+                } catch (err) {
+                    console.error('Erreur chargement favoris', err);
+                }
+            }, [token]);
+            
+            const checkFavorites = React.useCallback(async () => {
+                if (!token || recipes.length === 0) return;
+                const favMap = {};
+                for (const recipe of recipes) {
+                    try {
+                        const res = await fetch(`${API_URL}/api/user/isFavorite/${recipe.id}`, {
+                            headers: { 'Authorization': `Bearer ${token}` },
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            favMap[recipe.id] = data.isFavorite;
+                        }
+                    } catch (err) {
+                        console.error('Erreur vérification favori', err);
+                    }
+                }
+                setRecipeFavorites(favMap);
+            }, [token, recipes]);
+            
+            const fetchUserRatings = React.useCallback(async () => {
+                if (!token || recipes.length === 0) return;
+                const ratingsMap = {};
+                for (const recipe of recipes) {
+                    try {
+                        // Récupérer les favoris contient aussi les ratings si implémenté
+                        // Pour l'instant on fetch la structure des favoris 
+                        const res = await fetch(`${API_URL}/api/user/isFavorite/${recipe.id}`, {
+                            headers: { 'Authorization': `Bearer ${token}` },
+                        });
+                        // Placeholder - les ratings seront mises à jour quand on les recupere
+                        ratingsMap[recipe.id] = 0;
+                    } catch (err) {
+                        console.error('Erreur récupération rating', err);
+                    }
+                }
+                setUserRatings(ratingsMap);
+            }, [token, recipes]);
+            
+            React.useEffect(() => {
+                fetchUser();
+                fetchRecipes();
+            }, [token, fetchUser, fetchRecipes]);
+            
+            React.useEffect(() => {
+                checkFavorites();
+                fetchUserRatings();
+            }, [recipes, checkFavorites, fetchUserRatings]);
+            
+            const handleSearch = () => {
+                fetchRecipes(searchQuery);
+            };
+            
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                const username = e.target.username.value;
+                const password = e.target.password.value;
+                
+                try {
+                    const res = await fetch(`${API_URL}/api/auth/token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password }),
+                    });
+                    
+                    if (!res.ok) throw new Error('Email ou mot de passe incorrect');
+                    
+                    const data = await res.json();
+                    setToken(data.access_token);
+                    localStorage.setItem('token', data.access_token);
+                    setSuccess('Connecté avec succès!');
+                    setError('');
+                    setActiveTab('search');
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+            
+            const handleRegister = async (e) => {
+                e.preventDefault();
+                const fullName = e.target.fullName.value;
+                const email = e.target.email.value;
+                const username = e.target.username.value;
+                const password = e.target.password.value;
+                
+                try {
+                    const res = await fetch(`${API_URL}/api/users/register`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            username, email, password, full_name: fullName,
+                        }),
+                    });
+                    
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.detail || 'Erreur inscription');
+                    }
+                    
+                    setSuccess('Inscription réussie! Connectez-vous maintenant.');
+                    e.target.reset();
+                    setTimeout(() => setActiveTab('login'), 2000);
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+            
+            const handleUpdateProfile = async (e) => {
+                e.preventDefault();
+                const username = e.target.username.value;
+                const email = e.target.email.value;
+                
+                try {
+                    const res = await fetch(`${API_URL}/api/users/me`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ username, email }),
+                    });
+                    
+                    if (!res.ok) throw new Error('Erreur mise à jour');
+                    
+                    const updated = await res.json();
+                    setUser(updated);
+                    setSuccess('Profil mis à jour!');
+                    setProfileEdit(false);
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+            
+            const handleCreateRecipe = async (e) => {
+                e.preventDefault();
+                if (!token) {
+                    setError('Connectez-vous d\'abord');
+                    return;
+                }
+                
+                const recipe = {
+                    name: e.target.name.value,
+                    description: e.target.description.value,
+                    ingredients: e.target.ingredients.value,
+                    instructions: e.target.instructions.value,
+                    cuisine: e.target.cuisine.value,
+                    dish_type: e.target.dish_type.value,
+                    dietary_type: e.target.dietary_type.value,
+                    prep_time: parseInt(e.target.prep_time.value) || 0,
+                    cook_time: parseInt(e.target.cook_time.value) || 0,
+                    servings: parseInt(e.target.servings.value) || 4,
+                    difficulty: e.target.difficulty.value,
+                };
+                
+                try {
+                    const res = await fetch(`${API_URL}/api/recipes/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                        },
+                        body: JSON.stringify(recipe),
+                    });
+                    
+                    if (!res.ok) throw new Error('Erreur création recette');
+                    
+                    setSuccess('Recette créée!');
+                    e.target.reset();
+                    fetchRecipes();
+                    setTimeout(() => setActiveTab('search'), 2000);
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+            
+            const handleToggleFavorite = async (recipeId) => {
+                if (!token) {
+                    setError('Connectez-vous d\'abord');
+                    return;
+                }
+                
+                try {
+                    const isFav = recipeFavorites[recipeId];
+                    const method = isFav ? 'DELETE' : 'POST';
+                    const res = await fetch(`${API_URL}/api/user/favorites/${recipeId}`, {
+                        method,
+                        headers: { 'Authorization': `Bearer ${token}` },
+                    });
+                    
+                    if (res.ok) {
+                        setRecipeFavorites({...recipeFavorites, [recipeId]: !isFav});
+                        setSuccess(isFav ? 'Retiré des favoris' : 'Ajouté aux favoris');
+                        fetchFavorites();
+                    }
+                } catch (err) {
+                    setError('Erreur');
+                }
+            };
+            
+            const handleRate = async (recipeId, rating) => {
+                if (!token) {
+                    setError('Connectez-vous d\'abord');
+                    return;
+                }
+                
+                try {
+                    const res = await fetch(`${API_URL}/api/user/rate/${recipeId}?rating=${rating}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` },
+                    });
+                    
+                    if (res.ok) {
+                        setSuccess('Note enregistrée!');
+                        setUserRatings({...userRatings, [recipeId]: rating});
+                    }
+                } catch (err) {
+                    setError('Erreur notation');
+                }
+            };
+            
+            const handleLogout = () => {
+                setToken(null);
+                localStorage.removeItem('token');
+                setUser(null);
+                setRecipes([]);
+                setFavorites([]);
+                setActiveTab('search');
+            };
+            
+            const renderRecipeCard = (recipe) => (
+                <div key={recipe.id} className="recipe-card" onClick={() => setSelectedRecipe(recipe)} style={{cursor: 'pointer'}}>
+                    <div className="recipe-header">
+                        <div className="recipe-title-fav">
+                            <h3>{recipe.name}</h3>
+                            <button 
+                                className={`fav-btn ${recipeFavorites[recipe.id] ? 'active' : ''}`}
+                                onClick={(e) => {e.stopPropagation(); handleToggleFavorite(recipe.id);}}
+                                title="Ajouter aux favoris"
+                            >
+                                ❤️
+                            </button>
+                        </div>
+                        <div className="recipe-meta">
+                            <span>🌍 {recipe.cuisine}</span>
+                            <span>🍳 {recipe.dish_type}</span>
+                        </div>
+                    </div>
+                    <div className="recipe-body">
+                        <p className="recipe-description">{recipe.description}</p>
+                        <div className="recipe-details">
+                            <div className="detail-item">
+                                <strong>⏱️</strong> {recipe.prep_time + recipe.cook_time}min
+                            </div>
+                            <div className="detail-item">
+                                <strong>👥</strong> {recipe.servings}
+                            </div>
+                            <div className="detail-item">
+                                <strong>📊</strong> {recipe.difficulty}
+                            </div>
+                        </div>
+                        <StarRating 
+                            recipeId={recipe.id} 
+                            currentRating={userRatings[recipe.id]} 
+                            onRate={handleRate}
+                            token={token}
+                        />
+                    </div>
+                </div>
+            );
+            
+            return (
+                <div className="container">
+                    <header>
+                        <h1>🌍 World Recipes</h1>
+                        <p>Découvrez et partagez les meilleures recettes du monde</p>
+                    </header>
+                    
+                    {error && <div className="form-error">{error}</div>}
+                    {success && <div className="form-success">{success}</div>}
+                    
+                    {!token ? (
+                        <div>
+                            <div className="tabs">
+                                <button 
+                                    className={`tab-btn ${activeTab === 'login' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('login')}
+                                >
+                                    🔐 Connexion
+                                </button>
+                                <button 
+                                    className={`tab-btn ${activeTab === 'register' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('register')}
+                                >
+                                    ✍️ Inscription
+                                </button>
+                            </div>
+                            
+                            {activeTab === 'login' && (
+                                <form className="auth-form" onSubmit={handleLogin}>
+                                    <h2>Se Connecter</h2>
+                                    <div className="form-group">
+                                        <label>Nom d'utilisateur</label>
+                                        <input type="text" name="username" required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Mot de passe</label>
+                                        <input type="password" name="password" required />
+                                    </div>
+                                    <button type="submit">Se connecter</button>
+                                </form>
+                            )}
+                            
+                            {activeTab === 'register' && (
+                                <form className="auth-form" onSubmit={handleRegister}>
+                                    <h2>S'inscrire</h2>
+                                    <div className="form-group">
+                                        <label>Nom complet</label>
+                                        <input type="text" name="fullName" required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Email</label>
+                                        <input type="email" name="email" required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Nom d'utilisateur</label>
+                                        <input type="text" name="username" required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Mot de passe</label>
+                                        <input type="password" name="password" required />
+                                    </div>
+                                    <button type="submit">S'inscrire</button>
+                                </form>
+                            )}
+                        </div>
+                    ) : (
+                        <div>
+                            <div className="user-info">
+                                <span>✅ {user?.username}</span>
+                                <button className="logout-btn" onClick={handleLogout}>Déconnexion</button>
+                            </div>
+                            
+                            <div className="tabs">
+                                <button 
+                                    className={`tab-btn ${activeTab === 'search' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('search')}
+                                >
+                                    🔍
+                                </button>
+                                <button 
+                                    className={`tab-btn ${activeTab === 'favorites' ? 'active' : ''}`}
+                                    onClick={() => { setActiveTab('favorites'); fetchFavorites(); }}
+                                >
+                                    ❤️
+                                </button>
+                                <button 
+                                    className={`tab-btn ${activeTab === 'create' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('create')}
+                                >
+                                    ➕
+                                </button>
+                                <button 
+                                    className={`tab-btn ${activeTab === 'profile' ? 'active' : ''}`}
+                                    onClick={() => setActiveTab('profile')}
+                                >
+                                    👤
+                                </button>
+                            </div>
+                            
+                            {activeTab === 'search' && (
+                                <div>
+                                    <div className="search-bar">
+                                        <input 
+                                            type="text" 
+                                            placeholder="Rechercher..."
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                                        />
+                                        <button onClick={handleSearch}>🔍</button>
+                                    </div>
+                                    
+                                    <div className="filters">
+                                        <select 
+                                            value={filters.cuisine}
+                                            onChange={(e) => setFilters({...filters, cuisine: e.target.value})}
+                                        >
+                                            <option value="">🌍 Cuisines</option>
+                                            <option value="Française">Française</option>
+                                            <option value="Italienne">Italienne</option>
+                                            <option value="Asiatique">Asiatique</option>
+                                            <option value="Mexicaine">Mexicaine</option>
+                                        </select>
+                                        
+                                        <select 
+                                            value={filters.dish_type}
+                                            onChange={(e) => setFilters({...filters, dish_type: e.target.value})}
+                                        >
+                                            <option value="">🍽️ Types</option>
+                                            <option value="Entrée">Entrée</option>
+                                            <option value="Plat">Plat</option>
+                                            <option value="Dessert">Dessert</option>
+                                        </select>
+                                        
+                                        <select 
+                                            value={filters.dietary_type}
+                                            onChange={(e) => setFilters({...filters, dietary_type: e.target.value})}
+                                        >
+                                            <option value="">🥗 Régimes</option>
+                                            <option value="Végétarien">Végétarien</option>
+                                            <option value="Sans gluten">Sans gluten</option>
+                                            <option value="Normal">Normal</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div className="recipe-grid">
+                                        {recipes.map(renderRecipeCard)}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {activeTab === 'favorites' && (
+                                <div>
+                                    <h2>Mes Favoris ❤️</h2>
+                                    <div className="recipe-grid">
+                                        {favorites.length > 0 ? (
+                                            favorites.map(renderRecipeCard)
+                                        ) : (
+                                            <p>Aucune recette en favoris</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {activeTab === 'profile' && (
+                                <div className="profile-section">
+                                    <h2>Mon Profil 👤</h2>
+                                    {!profileEdit ? (
+                                        <div className="profile-info">
+                                            <p><strong>Nom:</strong> {user?.username}</p>
+                                            <p><strong>Email:</strong> {user?.email}</p>
+                                            <p><strong>Nom complet:</strong> {user?.full_name}</p>
+                                            <button onClick={() => setProfileEdit(true)}>Modifier</button>
+                                        </div>
+                                    ) : (
+                                        <form className="profile-form" onSubmit={handleUpdateProfile}>
+                                            <div className="form-group">
+                                                <label>Nom d'utilisateur</label>
+                                                <input type="text" name="username" defaultValue={user?.username} required />
+                                            </div>
+                                            <div className="form-group">
+                                                <label>Email</label>
+                                                <input type="email" name="email" defaultValue={user?.email} required />
+                                            </div>
+                                            <div className="button-group">
+                                                <button type="submit">Enregistrer</button>
+                                                <button type="button" onClick={() => setProfileEdit(false)}>Annuler</button>
+                                            </div>
+                                        </form>
+                                    )}
+                                </div>
+                            )}
+                            
+                            {activeTab === 'create' && (
+                                <form className="recipe-form" onSubmit={handleCreateRecipe}>
+                                    <h2>Ajouter une Recette ➕</h2>
+                                    
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Nom *</label>
+                                            <input type="text" name="name" required />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Cuisine</label>
+                                            <input type="text" name="cuisine" placeholder="ex: Française" />
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Type</label>
+                                            <select name="dish_type">
+                                                <option value="Entrée">Entrée</option>
+                                                <option value="Plat">Plat</option>
+                                                <option value="Dessert">Dessert</option>
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Régime</label>
+                                            <select name="dietary_type">
+                                                <option value="Normal">Normal</option>
+                                                <option value="Végétarien">Végétarien</option>
+                                                <option value="Sans gluten">Sans gluten</option>
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Difficulté</label>
+                                            <select name="difficulty">
+                                                <option value="Facile">Facile</option>
+                                                <option value="Moyen">Moyen</option>
+                                                <option value="Difficile">Difficile</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="form-group">
+                                        <label>Description *</label>
+                                        <textarea name="description" placeholder="Décrivez votre recette..." required></textarea>
+                                    </div>
+                                    
+                                    <div className="form-group">
+                                        <label>Ingrédients *</label>
+                                        <textarea name="ingredients" placeholder="- Ingrédient 1&#10;- Ingrédient 2&#10;- ..." required></textarea>
+                                    </div>
+                                    
+                                    <div className="form-group">
+                                        <label>Instructions *</label>
+                                        <textarea name="instructions" placeholder="1. Étape 1&#10;2. Étape 2&#10;..." required></textarea>
+                                    </div>
+                                    
+                                    <div className="form-row">
+                                        <div className="form-group">
+                                            <label>Préparation (min)</label>
+                                            <input type="number" name="prep_time" min="0" placeholder="15" />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Cuisson (min)</label>
+                                            <input type="number" name="cook_time" min="0" placeholder="30" />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Portions</label>
+                                            <input type="number" name="servings" min="1" defaultValue="4" />
+                                        </div>
+                                    </div>
+                                    
+                                    <button type="submit">Ajouter</button>
+                                </form>
+                            )}
+                        </div>
+                    )}
+                </div>
+                
+                {selectedRecipe && (
+                    <div className="modal-overlay" onClick={() => setSelectedRecipe(null)}>
+                        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                            <button className="modal-close" onClick={() => setSelectedRecipe(null)}>✕</button>
+                            <h2>{selectedRecipe.name}</h2>
+                            <p className="modal-cuisine">🌍 {selectedRecipe.cuisine} | 🍳 {selectedRecipe.dish_type} | 📊 {selectedRecipe.difficulty}</p>
+                            
+                            <div className="modal-section">
+                                <h3>📝 Description</h3>
+                                <p>{selectedRecipe.description}</p>
+                            </div>
+                            
+                            <div className="modal-section">
+                                <h3>⏱️ Temps & Portions</h3>
+                                <div className="info-grid">
+                                    <div><strong>Préparation:</strong> {selectedRecipe.prep_time} min</div>
+                                    <div><strong>Cuisson:</strong> {selectedRecipe.cook_time} min</div>
+                                    <div><strong>Total:</strong> {selectedRecipe.prep_time + selectedRecipe.cook_time} min</div>
+                                    <div><strong>Portions:</strong> {selectedRecipe.servings}</div>
+                                </div>
+                            </div>
+                            
+                            <div className="modal-section">
+                                <h3>🥘 Ingrédients</h3>
+                                <p style={{whiteSpace: 'pre-wrap'}}>{selectedRecipe.ingredients}</p>
+                            </div>
+                            
+                            <div className="modal-section">
+                                <h3>👨‍🍳 Instructions</h3>
+                                <p style={{whiteSpace: 'pre-wrap'}}>{selectedRecipe.instructions}</p>
+                            </div>
+                            
+                            <div className="modal-rating">
+                                <strong>Votre note:</strong>
+                                <StarRating 
+                                    recipeId={selectedRecipe.id}
+                                    currentRating={userRatings[selectedRecipe.id]}
+                                    onRate={handleRate}
+                                    token={token}
+                                />
+                            </div>
+                            
+                            <div className="modal-actions">
+                                <button 
+                                    className={`fav-btn ${recipeFavorites[selectedRecipe.id] ? 'active' : ''}`}
+                                    onClick={() => handleToggleFavorite(selectedRecipe.id)}
+                                >
+                                    {recipeFavorites[selectedRecipe.id] ? '❤️ Retiré des favoris' : '❤️ Ajouter aux favoris'}
+                                </button>
+                                <button className="modal-close-btn" onClick={() => setSelectedRecipe(null)}>Fermer</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            );
+        }
+        
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

@@ -207,10 +207,25 @@ async function handleRegister(event) {
             return;
         }
 
-        const err = await res.json();
-        alert(err.detail || 'Erreur inscription');
+        let errorDetail = `Erreur inscription (${res.status})`;
+        try {
+            const err = await res.json();
+            if (err?.detail) {
+                errorDetail = Array.isArray(err.detail)
+                    ? err.detail.map((item) => item.msg || JSON.stringify(item)).join(' | ')
+                    : err.detail;
+            }
+        } catch (parseError) {
+            const fallbackText = await res.text();
+            if (fallbackText) {
+                errorDetail = `${errorDetail} - ${fallbackText.slice(0, 180)}`;
+            }
+        }
+
+        alert(errorDetail);
     } catch (error) {
-        alert('Erreur inscription');
+        console.error('Register failed:', error);
+        alert('Erreur réseau: impossible de contacter l\'API');
     }
 }
 

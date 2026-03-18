@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from app.models.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, User as UserSchema, UserUpdate
@@ -35,9 +36,16 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
         full_name=user.full_name,
         hashed_password=get_password_hash(user.password),
     )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    try:
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erreur base de données lors de l'inscription"
+        )
     return db_user
 
 

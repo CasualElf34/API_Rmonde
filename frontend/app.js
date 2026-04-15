@@ -149,7 +149,25 @@ async function fetchUser() {
         const res = await fetch(`${API_URL}/api/users/me`, {
             headers: { 'Authorization': `Bearer ${state.token}` }
         });
-        if (res.ok) state.user = await res.json();
+        if (res.ok) {
+            state.user = await res.json();
+        } else if (res.status === 401) {
+            // Vérifie si le token est expiré côté client avant de déconnecter
+            try {
+                const payload = JSON.parse(atob(state.token.split('.')[1]));
+                const isExpired = payload.exp && Date.now() / 1000 > payload.exp;
+                if (isExpired) {
+                    // Token vraiment expiré → déconnexion propre
+                    state.token = null;
+                    localStorage.removeItem('token');
+                }
+                // Sinon (cold start Vercel, user absent de la DB) → on garde le token
+            } catch {
+                // JWT malformé → déconnecter
+                state.token = null;
+                localStorage.removeItem('token');
+            }
+        }
     } catch (error) {
         console.error(error);
     }

@@ -113,11 +113,17 @@ async def update_recipe(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Recette non trouvée"
         )
-    
+
+    if recipe.owner_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous ne pouvez modifier que vos propres recettes"
+        )
+
     update_data = recipe_update.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(recipe, field, value)
-    
+
     db.commit()
     db.refresh(recipe)
     return recipe
@@ -138,7 +144,13 @@ async def delete_recipe(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Recette non trouvée"
         )
-    
+
+    if recipe.owner_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous ne pouvez supprimer que vos propres recettes"
+        )
+
     db.delete(recipe)
     db.commit()
     return None

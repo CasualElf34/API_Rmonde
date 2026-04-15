@@ -103,3 +103,17 @@ async def is_favorite(
         )
     ).first()
     return {"isFavorite": favorite_record is not None}
+
+@router.get("/ratings")
+async def get_user_ratings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Récupérer toutes les notes de l'utilisateur connecté.
+    Retourne un dict {recipe_id: rating}
+    """
+    ratings = db.query(UserRecipeRating).filter(
+        UserRecipeRating.user_id == current_user.id
+    ).all()
+    return {r.recipe_id: r.rating for r in ratings}

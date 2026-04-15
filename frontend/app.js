@@ -22,7 +22,8 @@ let state = {
     activeTab: 'search',
     selectedRecipe: null,
     editingRecipe: null,
-    filters: { name: '', cuisine: '', dish_type: '', dietary_type: '' }
+    googleClientId: null,
+    filters: { name: '', cuisine: '', dish_type: '', dietary_type: '', ingredients: '' }
 };
 
 function persistRecipeImages() {
@@ -40,8 +41,45 @@ function setRecipeImage(recipeId, imageUrl) {
     persistRecipeImages();
 }
 
+const FOOD_IMAGES = {
+    'coq au vin':         'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=900&q=80',
+    'carbonara':          'https://images.unsplash.com/photo-1612874742237-6526221588e3?w=900&q=80',
+    'sushi':              'https://images.unsplash.com/photo-1553621042-f6e147245754?w=900&q=80',
+    'tacos':              'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=900&q=80',
+    'buddha':             'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=900&q=80',
+    'soupe':              'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=900&q=80',
+    'oignon':             'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=900&q=80',
+    'tiramisu':           'https://images.unsplash.com/photo-1571877227200-a0d98ea607e9?w=900&q=80',
+    'pad thai':           'https://images.unsplash.com/photo-1559314809-0d155014e29e?w=900&q=80',
+    'baguette':           'https://images.unsplash.com/photo-1549931319-a545dcf3bc73?w=900&q=80',
+    'pizza':              'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=900&q=80',
+    'burger':             'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&q=80',
+    'salade':             'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=900&q=80',
+    'risotto':            'https://images.unsplash.com/photo-1476124369491-e7addf5db371?w=900&q=80',
+    'poulet':             'https://images.unsplash.com/photo-1598103442097-8b74394b95c3?w=900&q=80',
+    'ramen':              'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=900&q=80',
+    'tarte':              'https://images.unsplash.com/photo-1519915028121-7d3463d20b13?w=900&q=80',
+    'crêpe':              'https://images.unsplash.com/photo-1519676867240-f03562e64548?w=900&q=80',
+    'crepe':              'https://images.unsplash.com/photo-1519676867240-f03562e64548?w=900&q=80',
+    'curry':              'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=900&q=80',
+    'pâtes':              'https://images.unsplash.com/photo-1551183053-bf91798d773a?w=900&q=80',
+    'pates':              'https://images.unsplash.com/photo-1551183053-bf91798d773a?w=900&q=80',
+};
+
 function getRecipeImage(recipe) {
-    return state.recipeImages[recipe.id] || `https://picsum.photos/seed/recipe-${recipe.id}/900/600`;
+    if (state.recipeImages[recipe.id]) return state.recipeImages[recipe.id];
+    const nameLower = (recipe.name || '').toLowerCase();
+    for (const [keyword, url] of Object.entries(FOOD_IMAGES)) {
+        if (nameLower.includes(keyword)) return url;
+    }
+    // Fallback: use a generic food photo with consistent seed
+    const foodFallbacks = [
+        'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=900&q=80',
+        'https://images.unsplash.com/photo-1493770348161-369560ae357d?w=900&q=80',
+        'https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=900&q=80',
+        'https://images.unsplash.com/photo-1476224203421-9ac39bcb3df1?w=900&q=80',
+    ];
+    return foodFallbacks[recipe.id % foodFallbacks.length];
 }
 
 function getRecipeShareUrl(recipeId) {
@@ -66,11 +104,11 @@ function renderFooter() {
             <div class="footer-inner">
                 <div>
                     <h3>World Recipes</h3>
-                    <p>Des recettes du monde dans une interface claire et rapide.</p>
+                    <p>Cuisines du monde, portées à votre table.</p>
                 </div>
                 <div class="footer-meta">
-                    <span>Frontend + API FastAPI</span>
-                    <span>© 2026</span>
+                    <span>Propulsé par la passion du goût</span>
+                    <span>© 2026 Gourmet Edition</span>
                 </div>
             </div>
         </footer>
@@ -80,23 +118,27 @@ function renderFooter() {
 function renderHero(isAuth) {
     if (!isAuth) {
         return `
-            <header class="hero">
+            <header class="hero animate-fade">
                 <div class="hero-content">
+                    <span class="hero-kicker">Cuisine Authentique</span>
                     <h1>🍽️ World Recipes</h1>
-                    <p>Explore, crée et partage des recettes avec une nouvelle interface moderne.</p>
+                    <p>Voyagez à travers les saveurs du monde entier. Découvrez, cuisinez et partagez des recettes d'exception.</p>
+                    <div class="hero-actions">
+                        <button class="btn btn-primary" onclick="state.activeTab = 'login'; render()">Commencer l'aventure</button>
+                    </div>
                 </div>
             </header>
         `;
     }
 
     return `
-        <header class="hero hero-auth">
+        <header class="hero hero-auth animate-fade">
             <div class="hero-content">
-                <p class="hero-kicker">Connecté en tant que ${state.user?.username || 'utilisateur'}</p>
-                <h1>🌍 Dashboard Recettes</h1>
-                <p>Recherche, favoris, édition et images de plats dans une seule vue.</p>
+                <span class="hero-kicker">Ravi de vous revoir, ${state.user?.username || 'Gourmet'} !</span>
+                <h1>🌍 Votre carnet de voyage culinaire</h1>
+                <p>Gérez vos pépites, créez de nouvelles inspirations et explorez le monde.</p>
             </div>
-            <button class="btn btn-danger" type="button" onclick="logout()">Déconnexion</button>
+            <button class="btn btn-danger" type="button" onclick="logout()">Se déconnecter</button>
         </header>
     `;
 }
@@ -122,6 +164,18 @@ async function fetchRecipes() {
         }
     } catch (error) {
         console.error(error);
+    }
+}
+
+async function fetchAuthConfig() {
+    try {
+        const res = await fetch(`${API_URL}/api/auth/config`);
+        if (res.ok) {
+            const config = await res.json();
+            state.googleClientId = config.google_client_id;
+        }
+    } catch (error) {
+        console.error('Failed to fetch auth config:', error);
     }
 }
 
@@ -152,6 +206,31 @@ async function fetchFavorites() {
     }
 }
 
+async function fetchRatings() {
+    if (!state.token) {
+        state.ratings = {};
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/user/ratings`, {
+            headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+
+        if (!res.ok) return;
+
+        // API returns { recipe_id: rating } — convert keys to numbers
+        const data = await res.json();
+        const ratings = {};
+        for (const [recipeId, rating] of Object.entries(data)) {
+            ratings[Number(recipeId)] = rating;
+        }
+        state.ratings = ratings;
+    } catch (error) {
+        console.error('Failed to fetch ratings:', error);
+    }
+}
+
 async function handleLogin(event) {
     event.preventDefault();
     const username = event.target.username.value;
@@ -175,11 +254,42 @@ async function handleLogin(event) {
 
         await Promise.all([fetchUser(), fetchRecipes()]);
         await fetchFavorites();
+        await fetchRatings();
 
         state.activeTab = 'search';
         render();
     } catch (error) {
         alert('Erreur connexion');
+    }
+}
+
+async function handleGoogleLogin(response) {
+    try {
+        const res = await fetch(`${API_URL}/api/auth/google`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential: response.credential })
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            alert(err.detail || 'Erreur Google Auth');
+            return;
+        }
+
+        const data = await res.json();
+        state.token = data.access_token;
+        localStorage.setItem('token', state.token);
+
+        await Promise.all([fetchUser(), fetchRecipes()]);
+        await fetchFavorites();
+        await fetchRatings();
+
+        state.activeTab = 'search';
+        render();
+    } catch (error) {
+        console.error('Google Auth Failed:', error);
+        alert('Erreur connexion Google');
     }
 }
 
@@ -444,9 +554,20 @@ async function handleUpdateProfile(event) {
     }
 }
 
+function handleAuthError(status) {
+    if (status === 401) {
+        alert('Session expirée, veuillez vous reconnecter.');
+        logout();
+        return true;
+    }
+    return false;
+}
+
 async function handleToggleFavorite(recipeId) {
     if (!state.token) {
-        alert('Connecte-toi d’abord');
+        alert('Connectez-vous pour ajouter des favoris.');
+        state.activeTab = 'login';
+        render();
         return;
     }
 
@@ -460,7 +581,8 @@ async function handleToggleFavorite(recipeId) {
         });
 
         if (!res.ok) {
-            alert('Impossible de modifier les favoris');
+            if (handleAuthError(res.status)) return;
+            alert('Impossible de modifier les favoris.');
             return;
         }
 
@@ -473,7 +595,9 @@ async function handleToggleFavorite(recipeId) {
 
 async function handleRate(recipeId, rating) {
     if (!state.token) {
-        alert('Connecte-toi d’abord');
+        alert('Connectez-vous pour noter une recette.');
+        state.activeTab = 'login';
+        render();
         return;
     }
 
@@ -484,7 +608,8 @@ async function handleRate(recipeId, rating) {
         });
 
         if (!res.ok) {
-            alert('Impossible de noter cette recette');
+            if (handleAuthError(res.status)) return;
+            alert('Impossible de noter cette recette.');
             return;
         }
 
@@ -498,13 +623,14 @@ async function handleRate(recipeId, rating) {
 async function applySearchFilters(event) {
     event.preventDefault();
     state.filters.name = event.target.query.value;
+    state.filters.ingredients = event.target.ingredient?.value || '';
     await fetchRecipes();
     await fetchFavorites();
     render();
 }
 
 function clearSearchFilters() {
-    state.filters = { name: '', cuisine: '', dish_type: '', dietary_type: '' };
+    state.filters = { name: '', cuisine: '', dish_type: '', dietary_type: '', ingredients: '' };
     fetchRecipes().then(fetchFavorites).then(render);
 }
 
@@ -527,25 +653,23 @@ function renderRecipeCard(recipe) {
     const imageUrl = getRecipeImage(recipe);
 
     return `
-        <article class="recipe-card" onclick="state.selectedRecipe = ${recipe.id}; render()">
+        <article class="recipe-card animate-fade" onclick="state.selectedRecipe = ${recipe.id}; render()">
             <div class="recipe-image-wrap">
                 <img class="recipe-image" src="${imageUrl}" alt="${recipe.name}" loading="lazy" onerror="this.src='https://picsum.photos/seed/fallback-${recipe.id}/900/600'">
                 <button type="button" class="fav-icon ${isFav}" onclick="event.stopPropagation(); handleToggleFavorite(${recipe.id})" aria-label="Favori">❤</button>
             </div>
             <div class="recipe-content">
+                <div class="recipe-tags">
+                    <span>${recipe.cuisine || 'Monde'}</span>
+                    <span>${recipe.difficulty || 'Moyen'}</span>
+                </div>
                 <h3>${recipe.name}</h3>
                 <p class="recipe-description">${recipe.description}</p>
-                <div class="recipe-tags">
-                    <span>${recipe.cuisine || 'Autre cuisine'}</span>
-                    <span>${recipe.dish_type || 'Plat'}</span>
-                    <span>${recipe.dietary_type || 'Normal'}</span>
-                </div>
                 <div class="recipe-stats">
-                    <span>⏱ ${totalTime} min</span>
-                    <span>👥 ${recipe.servings || 1}</span>
-                    <span>📈 ${recipe.difficulty || 'Moyen'}</span>
+                    <span title="Temps total">⏱ ${totalTime} min</span>
+                    <span title="Portions">👥 ${recipe.servings || 1}</span>
+                    <div class="stars-wrap">${renderStars(recipe.id)}</div>
                 </div>
-                ${renderStars(recipe.id)}
             </div>
         </article>
     `;
@@ -566,6 +690,16 @@ function renderLoginForm() {
                 </div>
                 <button class="btn" type="submit">Se connecter</button>
             </form>
+            
+            <div class="auth-divider">
+                <span>ou</span>
+            </div>
+
+            <div class="google-auth-container">
+                <div id="google-signin-btn"></div>
+            </div>
+            
+            <p class="auth-switch">Pas encore de compte ? <a href="#" onclick="event.preventDefault(); state.activeTab='register'; render()">S'inscrire</a></p>
         </section>
     `;
 }
@@ -717,10 +851,12 @@ function renderProfile() {
 
 function renderSearchSection() {
     return `
-        <section class="panel">
+        <section class="panel animate-fade">
+            <h2 class="section-title">Explorer les recettes</h2>
             <form class="search-row" onsubmit="applySearchFilters(event)">
-                <input type="text" name="query" placeholder="Rechercher une recette" value="${state.filters.name || ''}" aria-label="Recherche">
-                <button class="btn" type="submit">Rechercher</button>
+                <input type="text" name="query" placeholder="Nom de recette..." value="${state.filters.name || ''}" aria-label="Recherche par nom">
+                <input type="text" name="ingredient" placeholder="Ingrédient..." value="${state.filters.ingredients || ''}" aria-label="Recherche par ingrédient">
+                <button class="btn btn-primary" type="submit">Chercher</button>
                 <button class="btn btn-soft" type="button" onclick="clearSearchFilters()">Réinitialiser</button>
             </form>
 
@@ -729,12 +865,15 @@ function renderSearchSection() {
                     <option value="" ${state.filters.cuisine === '' ? 'selected' : ''}>Toutes cuisines</option>
                     <option value="Française" ${state.filters.cuisine === 'Française' ? 'selected' : ''}>Française</option>
                     <option value="Italienne" ${state.filters.cuisine === 'Italienne' ? 'selected' : ''}>Italienne</option>
+                    <option value="Japonaise" ${state.filters.cuisine === 'Japonaise' ? 'selected' : ''}>Japonaise</option>
+                    <option value="Marocaine" ${state.filters.cuisine === 'Marocaine' ? 'selected' : ''}>Marocaine</option>
                     <option value="Asiatique" ${state.filters.cuisine === 'Asiatique' ? 'selected' : ''}>Asiatique</option>
+                    <option value="Mexicaine" ${state.filters.cuisine === 'Mexicaine' ? 'selected' : ''}>Mexicaine</option>
                 </select>
                 <select onchange="state.filters.dish_type=this.value; fetchRecipes().then(fetchFavorites).then(render)">
                     <option value="" ${state.filters.dish_type === '' ? 'selected' : ''}>Tous types</option>
                     <option value="Entrée" ${state.filters.dish_type === 'Entrée' ? 'selected' : ''}>Entrée</option>
-                    <option value="Plat" ${state.filters.dish_type === 'Plat' ? 'selected' : ''}>Plat</option>
+                    <option value="Plat" ${state.filters.dish_type === 'Plat' ? 'selected' : ''}>Plat principal</option>
                     <option value="Dessert" ${state.filters.dish_type === 'Dessert' ? 'selected' : ''}>Dessert</option>
                 </select>
                 <select onchange="state.filters.dietary_type=this.value; fetchRecipes().then(fetchFavorites).then(render)">
@@ -776,42 +915,41 @@ function renderModal() {
         <div class="modal-overlay" onclick="if(event.target===this){state.selectedRecipe=null; render();}">
             <article class="modal-card">
                 <button type="button" class="modal-close" onclick="state.selectedRecipe=null; render()">✕</button>
-                <img class="modal-image" src="${imageUrl}" alt="${recipe.name}" onerror="this.src='https://picsum.photos/seed/fallback-modal-${recipe.id}/900/600'">
+                <div class="modal-image-panel">
+                    <img class="modal-image" src="${imageUrl}" alt="${recipe.name}" onerror="this.src='https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=900&q=80'">
+                </div>
                 <div class="modal-body">
+                    <span class="modal-sub">${recipe.cuisine || 'Monde'} • ${recipe.dish_type || 'Plat'}</span>
                     <h2>${recipe.name}</h2>
-                    <p class="modal-sub">${recipe.cuisine || 'Autre cuisine'} • ${recipe.dish_type || 'Plat'} • ${recipe.difficulty || 'Moyen'}</p>
-
+                    
                     <div class="mini-stats">
-                        <span>⏱ ${totalTime} min</span>
-                        <span>👥 ${recipe.servings || 1}</span>
-                        <span>${recipe.dietary_type || 'Normal'}</span>
+                        <div><b>${totalTime} min</b><span>Temps total</span></div>
+                        <div><b>${recipe.servings || 1}</b><span>Portions</span></div>
+                        <div><b>${recipe.difficulty || 'Moyen'}</b><span>Difficulté</span></div>
+                        <div><b>${recipe.dietary_type || 'Normal'}</b><span>Régime</span></div>
                     </div>
 
-                    <section class="modal-block">
+                    <div class="modal-block">
                         <h3>Description</h3>
                         <p>${recipe.description}</p>
-                    </section>
+                    </div>
 
-                    <section class="modal-block">
+                    <div class="modal-block">
                         <h3>Ingrédients</h3>
                         <p class="preserve-lines">${recipe.ingredients}</p>
-                    </section>
+                    </div>
 
-                    <section class="modal-block">
+                    <div class="modal-block">
                         <h3>Instructions</h3>
                         <p class="preserve-lines">${recipe.instructions}</p>
-                    </section>
-
-                    <div class="modal-rating">
-                        <strong>Ta note</strong>
-                        ${renderStars(recipe.id)}
                     </div>
 
                     <div class="modal-actions">
-                        <button type="button" class="btn btn-soft ${isFav}" onclick="handleToggleFavorite(${recipe.id})">${isFav ? 'Retirer favori' : 'Ajouter favori'}</button>
-                        <button type="button" class="btn btn-soft" onclick="startRecipeEdit(${recipe.id})">Modifier</button>
-                        <button type="button" class="btn btn-soft" onclick="handleDeleteRecipe(${recipe.id})">Supprimer</button>
-                        <button type="button" class="btn" onclick="handleShareRecipe(${recipe.id})">Partager</button>
+                        <button class="btn btn-primary" onclick="handleShareRecipe(${recipe.id})">Partager</button>
+                        ${state.token && state.user && (recipe.owner_id === state.user.id || state.user.is_admin) ? `
+                            <button class="btn btn-soft" onclick="startRecipeEdit(${recipe.id})">Modifier</button>
+                            <button class="btn btn-danger" onclick="handleDeleteRecipe(${recipe.id})">Supprimer</button>
+                        ` : ''}
                     </div>
                 </div>
             </article>
@@ -819,15 +957,16 @@ function renderModal() {
     `;
 }
 
+
 function renderAuthPage() {
     const authContent = state.activeTab === 'register' ? renderRegisterForm() : renderLoginForm();
 
     return `
         ${renderHero(false)}
         <main class="main-layout auth-layout">
-            <nav class="tabs tabs-auth">
+            <nav class="tabs animate-fade">
                 <button class="tab-btn ${state.activeTab === 'login' ? 'active' : ''}" onclick="state.activeTab='login'; render()">Connexion</button>
-                <button class="tab-btn ${state.activeTab === 'register' ? 'active' : ''}" onclick="state.activeTab='register'; render()">Inscription</button>
+                <button class="tab-btn ${state.activeTab === 'register' ? 'active' : ''}" onclick="state.activeTab='register'; render()">Créer un compte</button>
             </nav>
             ${authContent}
         </main>
@@ -839,10 +978,10 @@ function renderAppPage(content) {
     return `
         ${renderHero(true)}
         <main class="main-layout">
-            <nav class="tabs">
+            <nav class="tabs animate-fade">
                 <button class="tab-btn ${state.activeTab === 'search' ? 'active' : ''}" onclick="state.activeTab='search'; render()">Explorer</button>
                 <button class="tab-btn ${state.activeTab === 'favorites' ? 'active' : ''}" onclick="state.activeTab='favorites'; render()">Favoris</button>
-                <button class="tab-btn ${state.activeTab === 'create' ? 'active' : ''}" onclick="state.activeTab='create'; state.editingRecipe=null; render()">Nouvelle recette</button>
+                <button class="tab-btn ${state.activeTab === 'create' ? 'active' : ''}" onclick="state.activeTab='create'; state.editingRecipe=null; render()">Créer</button>
                 <button class="tab-btn ${state.activeTab === 'profile' ? 'active' : ''}" onclick="state.activeTab='profile'; render()">Profil</button>
             </nav>
             ${content}
@@ -857,6 +996,24 @@ async function render() {
 
     if (!state.token) {
         app.innerHTML = renderAuthPage();
+        
+        // Google button initialization
+        if (state.activeTab === 'login' && window.google && state.googleClientId) {
+            google.accounts.id.initialize({
+                client_id: state.googleClientId,
+                callback: handleGoogleLogin
+            });
+            const btnContainer = document.getElementById('google-signin-btn');
+            if (btnContainer) {
+                google.accounts.id.renderButton(btnContainer, {
+                    theme: 'outline',
+                    size: 'large',
+                    width: '100%',
+                    text: 'signin_with',
+                    shape: 'pill'
+                });
+            }
+        }
         return;
     }
 
@@ -876,8 +1033,9 @@ async function render() {
 }
 
 (async () => {
-    await Promise.all([fetchRecipes(), fetchUser()]);
+    await Promise.all([fetchRecipes(), fetchUser(), fetchAuthConfig()]);
     await fetchFavorites();
+    await fetchRatings();
 
     const params = new URLSearchParams(window.location.search);
     const sharedRecipeId = parseInt(params.get('recipe'), 10);

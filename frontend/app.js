@@ -984,20 +984,21 @@ function renderAppPage(content) {
                 <button class="tab-btn ${state.activeTab === 'create' ? 'active' : ''}" onclick="state.activeTab='create'; state.editingRecipe=null; render()">Créer</button>
                 <button class="tab-btn ${state.activeTab === 'profile' ? 'active' : ''}" onclick="state.activeTab='profile'; render()">Profil</button>
             </nav>
-            ${content}
+            <div id="main-content">
+                ${content}
+                ${state.selectedRecipe ? renderModal() : ''}
+            </div>
         </main>
         ${renderFooter()}
-        ${state.selectedRecipe ? renderModal() : ''}
     `;
 }
 
 async function render() {
     const app = document.getElementById('app');
 
+    // ── Auth page (not logged in) ──────────────────────────────────
     if (!state.token) {
         app.innerHTML = renderAuthPage();
-        
-        // Google button initialization
         if (state.activeTab === 'login' && window.google && state.googleClientId) {
             google.accounts.id.initialize({
                 client_id: state.googleClientId,
@@ -1006,30 +1007,29 @@ async function render() {
             const btnContainer = document.getElementById('google-signin-btn');
             if (btnContainer) {
                 google.accounts.id.renderButton(btnContainer, {
-                    theme: 'outline',
-                    size: 'large',
-                    width: '100%',
-                    text: 'signin_with',
-                    shape: 'pill'
+                    theme: 'outline', size: 'large', width: '100%',
+                    text: 'signin_with', shape: 'pill'
                 });
             }
         }
         return;
     }
 
+    // ── Logged-in: compute content ─────────────────────────────────
     let content = '';
+    if (state.activeTab === 'search')         content = renderSearchSection();
+    else if (state.activeTab === 'favorites') content = renderFavoritesSection();
+    else if (state.activeTab === 'create')    content = renderCreateForm();
+    else                                      content = renderProfile();
 
-    if (state.activeTab === 'search') {
-        content = renderSearchSection();
-    } else if (state.activeTab === 'favorites') {
-        content = renderFavoritesSection();
-    } else if (state.activeTab === 'create') {
-        content = renderCreateForm();
+    const mainContent = document.getElementById('main-content');
+    if (mainContent) {
+        // Nav already in DOM — only replace the content area (no flash)
+        mainContent.innerHTML = content + (state.selectedRecipe ? renderModal() : '');
     } else {
-        content = renderProfile();
+        // First render after login — build the full shell
+        app.innerHTML = renderAppPage(content);
     }
-
-    app.innerHTML = renderAppPage(content);
 }
 
 (async () => {

@@ -1,9 +1,18 @@
 from pydantic_settings import BaseSettings
 import os
 
+# Vercel préfixe parfois les variables Neon avec "DB_"
+_db_url = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("DB_DATABASE_URL")
+    or os.getenv("POSTGRES_URL")
+    or os.getenv("DB_POSTGRES_URL")
+    or "sqlite:///./recipes.db"
+)
+
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./recipes.db")
+    DATABASE_URL: str = _db_url
     SECRET_KEY: str = "your-secret-key-here-change-in-production-key-2024"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 jours

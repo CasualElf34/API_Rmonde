@@ -17,5 +17,9 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-if os.getenv("RAILWAY_ENVIRONMENT") and settings.DATABASE_URL.startswith("sqlite:///./"):
+# Sur Vercel et Railway (environnements serverless), seul /tmp est accessible en écriture
+if settings.DATABASE_URL.startswith("sqlite:///./") and not os.path.exists("recipes.db"):
     settings.DATABASE_URL = "sqlite:////tmp/recipes.db"
+elif os.getenv("VERCEL") or os.getenv("RAILWAY_ENVIRONMENT"):
+    if settings.DATABASE_URL.startswith("sqlite:///./"):
+        settings.DATABASE_URL = "sqlite:////tmp/recipes.db"

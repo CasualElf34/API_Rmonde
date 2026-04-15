@@ -17,9 +17,15 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Sur Vercel et Railway (environnements serverless), seul /tmp est accessible en écriture
-if settings.DATABASE_URL.startswith("sqlite:///./") and not os.path.exists("recipes.db"):
-    settings.DATABASE_URL = "sqlite:////tmp/recipes.db"
-elif os.getenv("VERCEL") or os.getenv("RAILWAY_ENVIRONMENT"):
-    if settings.DATABASE_URL.startswith("sqlite:///./"):
+# Neon / PostgreSQL : convertit postgresql:// → postgresql+psycopg2:// pour SQLAlchemy
+if settings.DATABASE_URL.startswith("postgres://"):
+    settings.DATABASE_URL = settings.DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif settings.DATABASE_URL.startswith("postgresql://") and "+psycopg2" not in settings.DATABASE_URL:
+    settings.DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+# Fallback SQLite /tmp uniquement si pas de DB persistante configurée
+elif settings.DATABASE_URL.startswith("sqlite:///./"):
+    if not os.path.exists("recipes.db"):
+        settings.DATABASE_URL = "sqlite:////tmp/recipes.db"
+    elif os.getenv("VERCEL") or os.getenv("RAILWAY_ENVIRONMENT"):
         settings.DATABASE_URL = "sqlite:////tmp/recipes.db"
